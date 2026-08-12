@@ -6,12 +6,15 @@ const ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/products", label: "Products" },
   { href: "/stock", label: "Stock" },
+  { href: "/stock/transfers", label: "Transfers" },
+  { href: "/stock/count", label: "Stock count" },
+  { href: "/reports", label: "Reports" },
   { href: "/settings", label: "Settings" },
 ];
 
 export function Nav() {
   const path = usePathname();
-  const active = (h: string) => (h === "/" ? path === "/" : path.startsWith(h));
+  const active = (h: string) => (h === "/" ? path === "/" : h === "/stock" ? path === "/stock" : path.startsWith(h));
   return (
     <nav>
       {ITEMS.map((i) => (

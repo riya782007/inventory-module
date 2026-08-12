@@ -1,48 +1,72 @@
 "use client";
 import { useState } from "react";
-import { useDB, useRepo, balanceOf } from "@/lib/store";
+import Link from "next/link";
+import { useDB, useRepo, balanceAt } from "@/lib/store";
 import { REASONS_IN, REASONS_OUT } from "@/lib/types";
 
 export default function Stock() {
   const db = useDB();
   const { postMovement } = useRepo();
-  const [open, setOpen] = useState<string | null>(null);       // variant id being adjusted
-  const [hist, setHist] = useState<string | null>(null);       // variant id history shown
+  const [locId, setLocId] = useState<string>("");           // "" = all locations
+  const [open, setOpen] = useState<string | null>(null);
+  const [hist, setHist] = useState<string | null>(null);
   const [qty, setQty] = useState("");
   const [dir, setDir] = useState<"in" | "out">("in");
   const [reason, setReason] = useState<string>("purchase");
   const [note, setNote] = useState("");
+
+  const multiLoc = db.locations.length > 1;
+  const activeLoc = locId || db.locations.find(l => l.is_default)?.id || "";
+  const locName = (id: string) => db.locations.find(l => l.id === id)?.name ?? "?";
 
   const rows = db.products
     .filter(p => p.status === "active")
     .flatMap(p => p.variants.map(v => ({
       p, v,
       label: Object.values(v.attributes).join(" / "),
-      qty: balanceOf(db.movements, v.id),
+      qty: balanceAt(db.balances, v.id, locId || undefined),
+      min: db.reorder[`${v.id}:${activeLoc}`],
     })));
 
   async function submit(variantId: string) {
     const n = parseFloat(qty);
     if (!Number.isFinite(n) || n <= 0) return alert("Enter a quantity");
-    const delta = dir === "in" ? n : -n;
+    if (!activeLoc) return alert("Pick a location");
     try {
       await postMovement({
-        variant_id: variantId, qty_delta: delta,
-        reason, note: note.trim() || null,
+        variant_id: variantId, location_id: activeLoc,
+        qty_delta: dir === "in" ? n : -n, reason, note: note.trim() || null,
       });
       setOpen(null); setQty(""); setNote("");
-    } catch (e: any) {
-      alert(e.message); // the DATABASE refuses oversell; surface its message
-    }
+    } catch (e: any) { alert(e.message); }
   }
 
   return (
     <>
-      <h1>Stock</h1>
-      <p className="sub">
-        Balances are the sum of the movement ledger — never a stored number.
-        Adjust stock and watch the history: nothing is ever edited, only appended.
-      </p>
+      <div className="topbar">
+        <div>
+          <h1>Stock</h1>
+          <p className="sub" style={{ marginBottom: 0 }}>
+            Balances are the sum of the movement ledger — never a stored number.
+          </p>
+        </div>
+        <div className="row">
+          <Link href="/stock/transfers" className="btn ghost">Transfers</Link>
+          <Link href="/stock/count" className="btn ghost">Stock count</Link>
+        </div>
+      </div>
+
+      {multiLoc && (
+        <div className="row" style={{ marginBottom: 14 }}>
+          <select className="input" style={{ maxWidth: 240 }} value={locId}
+            onChange={e => setLocId(e.target.value)}>
+            <option value="">All locations (total)</option>
+            {db.locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+          {locId === "" &&
+            <span className="sub" style={{ margin: 0 }}>Adjustments post to {locName(activeLoc)}.</span>}
+        </div>
+      )}
 
       {db.loading ? (
         <div className="empty">Loading…</div>
@@ -56,15 +80,15 @@ export default function Stock() {
               <th className="num">On hand</th><th></th>
             </tr></thead>
             <tbody>
-              {rows.map(({ p, v, label, qty: q }) => (
-                <FragmentRow key={v.id}>
+              {rows.map(({ p, v, label, qty: q, min }) => (
+                <Frag key={v.id}>
                   <tr>
                     <td style={{ fontWeight: 600 }}>{p.name}</td>
                     <td>{label || <span className="dim">—</span>}</td>
                     <td className="mono dim">{v.sku}</td>
                     <td className="num mono">
                       {q <= 0 ? <span className="badge red">0</span>
-                        : q <= 5 ? <span className="badge warn">{q}</span> : q}
+                        : min != null && q <= min ? <span className="badge warn">{q}</span> : q}
                     </td>
                     <td className="num" style={{ whiteSpace: "nowrap" }}>
                       <button className="btn ghost sm" style={{ marginRight: 8 }}
@@ -97,6 +121,14 @@ export default function Stock() {
                               <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
                           </select>
                         </div>
+                        {multiLoc && (
+                          <div className="field" style={{ maxWidth: 170 }}>
+                            <label>Location</label>
+                            <select className="input" value={activeLoc} onChange={e => setLocId(e.target.value)}>
+                              {db.locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                            </select>
+                          </div>
+                        )}
                         <div className="field"><label>Note</label>
                           <input className="input" value={note} onChange={e => setNote(e.target.value)} /></div>
                         <button className="btn sm" style={{ marginTop: 16 }} onClick={() => submit(v.id)}>Post</button>
@@ -105,28 +137,27 @@ export default function Stock() {
                   )}
                   {hist === v.id && (
                     <tr><td colSpan={5} style={{ background: "var(--panel2)", padding: 0 }}>
-                      <table className="table">
-                        <tbody>
-                          {db.movements.filter(m => m.variant_id === v.id).length === 0 && (
-                            <tr><td className="dim">No movements yet.</td></tr>
-                          )}
-                          {db.movements.filter(m => m.variant_id === v.id).map(m => (
-                            <tr key={m.id}>
-                              <td className="dim" style={{ width: 170 }}>
-                                {new Date(m.occurred_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
-                              </td>
-                              <td>{m.reason.replace(/_/g, " ")}</td>
-                              <td className="dim">{m.note ?? ""}</td>
-                              <td className="num mono" style={{ width: 90, color: m.qty_delta > 0 ? "#34D399" : "var(--red)" }}>
-                                {m.qty_delta > 0 ? "+" : ""}{m.qty_delta}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                      <table className="table"><tbody>
+                        {db.movements.filter(m => m.variant_id === v.id).length === 0 && (
+                          <tr><td className="dim">No movements yet.</td></tr>
+                        )}
+                        {db.movements.filter(m => m.variant_id === v.id).map(m => (
+                          <tr key={m.id}>
+                            <td className="dim" style={{ width: 165 }}>
+                              {new Date(m.occurred_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                            </td>
+                            <td>{m.reason.replace(/_/g, " ")}</td>
+                            <td className="dim">{multiLoc ? locName(m.location_id) : ""}</td>
+                            <td className="dim">{m.note ?? ""}</td>
+                            <td className="num mono" style={{ width: 80, color: m.qty_delta > 0 ? "#34D399" : "var(--red)" }}>
+                              {m.qty_delta > 0 ? "+" : ""}{m.qty_delta}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody></table>
                     </td></tr>
                   )}
-                </FragmentRow>
+                </Frag>
               ))}
             </tbody>
           </table>
@@ -135,5 +166,4 @@ export default function Stock() {
     </>
   );
 }
-
-function FragmentRow({ children }: { children: React.ReactNode }) { return <>{children}</>; }
+function Frag({ children }: { children: React.ReactNode }) { return <>{children}</>; }

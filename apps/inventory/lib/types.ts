@@ -28,10 +28,19 @@ export type Product = {
   created_at: string;
 };
 
+export type Location = { id: string; name: string; type: string; is_default: boolean };
+
+export type Balance = {
+  variant_id: string; location_id: string;
+  qty_on_hand: number; qty_reserved: number; qty_available: number;
+  moving_avg_cost_paise: number | null;
+};
+
 /** Mirrors inventory.stock_movements — append-only, signed deltas. */
 export type Movement = {
   id: string;
   variant_id: string;
+  location_id: string;
   qty_delta: number;
   reason: "opening" | "purchase" | "sale" | "sale_return" | "adjustment"
         | "damage" | "expiry" | "theft" | "count_correction";

@@ -1,21 +1,29 @@
 "use client";
 import Link from "next/link";
 import { formatPaise } from "@newvora/pricing";
-import { useDB, balanceOf } from "@/lib/store";
+import { useDB, balanceAt } from "@/lib/store";
 
 export default function Dashboard() {
   const db = useDB();
   const variants = db.products.filter(p => p.status === "active").flatMap(p => p.variants);
-  const balances = variants.map(v => ({ v, qty: balanceOf(db.movements, v.id) }));
-  const stockValue = balances.reduce((s, b) => s + b.qty * (b.v.base_cost_paise ?? 0), 0);
-  const out = balances.filter(b => b.qty <= 0).length;
-  const low = balances.filter(b => b.qty > 0 && b.qty <= 5).length;
+  const totals = variants.map(v => ({ v, qty: balanceAt(db.balances, v.id) }));
+  const stockValue = db.balances.reduce((s, b) => {
+    const v = variants.find(x => x.id === b.variant_id);
+    return s + Math.round(b.qty_on_hand * (b.moving_avg_cost_paise ?? v?.base_cost_paise ?? 0));
+  }, 0);
+  const out = totals.filter(b => b.qty <= 0).length;
+  const low = totals.filter(b => {
+    if (b.qty <= 0) return false;
+    const mins = Object.entries(db.reorder)
+      .filter(([k]) => k.startsWith(b.v.id + ":")).map(([, n]) => n);
+    return mins.length > 0 && b.qty <= Math.max(...mins);
+  }).length;
 
   const METRICS = [
     { k: "Stock value", v: formatPaise(stockValue), hint: "at cost" },
     { k: "Products", v: String(db.products.filter(p => p.status === "active").length), hint: "active" },
     { k: "SKUs", v: String(variants.length), hint: "variants tracked" },
-    { k: "Low stock", v: String(low), hint: "5 or fewer left" },
+    { k: "Low stock", v: String(low), hint: "at or below min level" },
     { k: "Out of stock", v: String(out), hint: "zero available" },
     { k: "Movements", v: String(db.movements.length), hint: "ledger entries" },
   ];

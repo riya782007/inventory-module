@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { formatPaise } from "@newvora/pricing";
-import { useDB, useRepo, balanceOf } from "@/lib/store";
+import { useDB, useRepo, balanceAt } from "@/lib/store";
 
 export default function Products() {
   const db = useDB();
@@ -52,7 +52,7 @@ export default function Products() {
             </tr></thead>
             <tbody>
               {products.map(p => {
-                const qty = p.variants.reduce((s, v) => s + balanceOf(db.movements, v.id), 0);
+                const qty = p.variants.reduce((s, v) => s + balanceAt(db.balances, v.id), 0);
                 const prices = p.variants.map(v => v.selling_price_paise).filter((x): x is number => x != null);
                 const price = prices.length
                   ? (Math.min(...prices) === Math.max(...prices)
@@ -62,7 +62,7 @@ export default function Products() {
                 return (
                   <tr key={p.id}>
                     <td>
-                      <div style={{ fontWeight: 600 }}>{p.name}</div>
+                      <Link href={`/products/${p.id}`} style={{ fontWeight: 600, color: "var(--accent-soft)" }}>{p.name}</Link>
                       <div className="dim" style={{ fontSize: 12 }}>
                         {[p.brand, p.category].filter(Boolean).join(" · ") || "—"}
                       </div>

@@ -1,19 +1,15 @@
 "use client";
 /**
- * LIVE repository — Supabase, RLS enforced with the signed-in user's JWT.
- * Replaces the localStorage demo. The hook surface (useDB / useRepo /
- * balanceOf) is unchanged, so the pages did not have to change shape.
- *
- * Ledger discipline is identical to before: stock is DERIVED from movements;
- * writes go through inventory.post_movement, which refuses oversell and
- * forged org ids at the database layer.
+ * LIVE repository — Supabase under the signed-in user's JWT, RLS enforced.
+ * Balances come from inventory.stock_balances (trigger-maintained cache of
+ * the ledger), movements are fetched only for history views.
  */
 import { useCallback, useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import type { Product, Movement, ProductOption, Variant } from "./types";
+import type { Product, Movement, ProductOption, Variant, Location, Balance } from "./types";
 
 export type NewProductPayload = {
-  name: string; brand?: string; category?: string; hsn_sac?: string;
+  name: string; sku?: string; brand?: string; category?: string; hsn_sac?: string;
   description?: string;
   has_variants: boolean;
   options?: ProductOption[];
@@ -26,27 +22,36 @@ export type NewProductPayload = {
   mrp_paise?: number | null; opening_qty?: number;
 };
 
-type DB = { products: Product[]; movements: Movement[]; loading: boolean };
-let version = 0;
-const bump = () => { version++; listeners.forEach((l) => l()); };
+type DB = {
+  products: Product[]; movements: Movement[];
+  balances: Balance[]; locations: Location[];
+  reorder: Record<string, number>;           // `${variant_id}:${location_id}` -> min_qty
+  loading: boolean;
+};
 const listeners = new Set<() => void>();
+const bump = () => listeners.forEach((l) => l());
 
 async function fetchAll(): Promise<Omit<DB, "loading">> {
   const supa = supabaseBrowser();
-  const [prod, mov] = await Promise.all([
+  const [prod, mov, bal, loc, ror] = await Promise.all([
     supa.schema("core").from("products")
       .select(`id, name, hsn_sac, has_variants, status, created_at,
                brands ( name ), categories ( name ),
                product_options ( name, position, product_option_values ( value, position ) ),
-               product_variants ( id, sku, attributes, is_default,
+               product_variants ( id, sku, attributes, is_default, status,
                  base_cost_paise, selling_price_paise, mrp_paise )`)
       .order("created_at", { ascending: false }),
     supa.schema("inventory").from("stock_movements")
-      .select("id, variant_id, qty_delta, reason, note, occurred_at")
+      .select("id, variant_id, location_id, qty_delta, reason, note, occurred_at")
       .order("occurred_at", { ascending: false }).limit(500),
+    supa.schema("inventory").from("stock_balances")
+      .select("variant_id, location_id, qty_on_hand, qty_reserved, qty_available, moving_avg_cost_paise"),
+    supa.schema("inventory").from("locations")
+      .select("id, name, type, is_default").eq("status", "active").order("is_default", { ascending: false }),
+    supa.schema("inventory").from("reorder_rules")
+      .select("variant_id, location_id, min_qty"),
   ]);
-  if (prod.error) throw prod.error;
-  if (mov.error) throw mov.error;
+  for (const r of [prod, mov, bal, loc, ror]) if (r.error) throw r.error;
 
   const products: Product[] = (prod.data ?? []).map((p: any) => ({
     id: p.id, name: p.name,
@@ -68,15 +73,32 @@ async function fetchAll(): Promise<Omit<DB, "loading">> {
       selling_price_paise: v.selling_price_paise, mrp_paise: v.mrp_paise,
     })),
   }));
-  const movements: Movement[] = (mov.data ?? []).map((m: any) => ({
-    id: String(m.id), variant_id: m.variant_id, qty_delta: Number(m.qty_delta),
-    reason: m.reason, note: m.note, occurred_at: m.occurred_at,
-  }));
-  return { products, movements };
+  const reorder: Record<string, number> = {};
+  (ror.data ?? []).forEach((r: any) => {
+    reorder[`${r.variant_id}:${r.location_id}`] = Number(r.min_qty);
+  });
+  return {
+    products,
+    movements: (mov.data ?? []).map((m: any) => ({
+      id: String(m.id), variant_id: m.variant_id, location_id: m.location_id,
+      qty_delta: Number(m.qty_delta), reason: m.reason, note: m.note,
+      occurred_at: m.occurred_at,
+    })),
+    balances: (bal.data ?? []).map((b: any) => ({
+      variant_id: b.variant_id, location_id: b.location_id,
+      qty_on_hand: Number(b.qty_on_hand), qty_reserved: Number(b.qty_reserved),
+      qty_available: Number(b.qty_available),
+      moving_avg_cost_paise: b.moving_avg_cost_paise,
+    })),
+    locations: (loc.data ?? []) as Location[],
+    reorder,
+  };
 }
 
 export function useDB(): DB {
-  const [db, setDb] = useState<DB>({ products: [], movements: [], loading: true });
+  const [db, setDb] = useState<DB>({
+    products: [], movements: [], balances: [], locations: [], reorder: {}, loading: true,
+  });
   useEffect(() => {
     let live = true;
     const load = () =>
@@ -91,19 +113,36 @@ export function useDB(): DB {
   return db;
 }
 
-async function orgAndLocation() {
-  const supa = supabaseBrowser();
-  const { data: { session } } = await supa.auth.getSession();
-  const orgId = (session?.user?.app_metadata as any)?.org_id as string | undefined;
-  const { data: loc } = await supa.schema("inventory").from("locations")
-    .select("id").eq("is_default", true).limit(1).maybeSingle();
-  return { orgId, locationId: loc?.id as string | undefined };
+async function orgId(): Promise<string> {
+  const { data: { session } } = await supabaseBrowser().auth.getSession();
+  const id = (session?.user?.app_metadata as any)?.org_id as string | undefined;
+  if (!id) throw new Error("No organization in session");
+  return id;
 }
 
 export function useRepo() {
   const createProduct = useCallback(async (payload: NewProductPayload) => {
     const { error } = await supabaseBrowser().schema("core")
       .rpc("create_product_v2", { p: payload });
+    if (error) throw new Error(error.message);
+    bump();
+  }, []);
+
+  const updateProduct = useCallback(async (id: string, patch: {
+    name?: string; hsn_sac?: string | null; status?: string;
+  }) => {
+    const { error } = await supabaseBrowser().schema("core")
+      .from("products").update(patch).eq("id", id);
+    if (error) throw new Error(error.message);
+    bump();
+  }, []);
+
+  const updateVariant = useCallback(async (id: string, patch: {
+    sku?: string; base_cost_paise?: number | null;
+    selling_price_paise?: number | null; mrp_paise?: number | null;
+  }) => {
+    const { error } = await supabaseBrowser().schema("core")
+      .from("product_variants").update(patch).eq("id", id);
     if (error) throw new Error(error.message);
     bump();
   }, []);
@@ -116,15 +155,28 @@ export function useRepo() {
   }, []);
 
   const postMovement = useCallback(async (m: {
-    variant_id: string; qty_delta: number; reason: string; note: string | null;
+    variant_id: string; location_id: string; qty_delta: number;
+    reason: string; note: string | null;
   }) => {
-    const { orgId, locationId } = await orgAndLocation();
-    if (!orgId || !locationId) throw new Error("No organization or location");
     const { error } = await supabaseBrowser().schema("inventory")
       .rpc("post_movement", {
-        p_org: orgId, p_variant: m.variant_id, p_location: locationId,
+        p_org: await orgId(), p_variant: m.variant_id, p_location: m.location_id,
         p_delta: m.qty_delta, p_reason: m.reason, p_note: m.note,
       });
+    if (error) throw new Error(error.message);
+    bump();
+  }, []);
+
+  const rpc = useCallback(async (fn: string, args: Record<string, unknown>) => {
+    const { data, error } = await supabaseBrowser().schema("inventory").rpc(fn, args);
+    if (error) throw new Error(error.message);
+    bump();
+    return data;
+  }, []);
+
+  const addLocation = useCallback(async (name: string, type: string) => {
+    const { error } = await supabaseBrowser().schema("inventory")
+      .from("locations").insert({ org_id: await orgId(), name, type });
     if (error) throw new Error(error.message);
     bump();
   }, []);
@@ -134,12 +186,16 @@ export function useRepo() {
     window.location.href = "/login";
   }, []);
 
-  return { createProduct, archiveProduct, postMovement, signOut };
+  return { createProduct, updateProduct, updateVariant, archiveProduct,
+           postMovement, rpc, addLocation, signOut, refresh: bump };
 }
 
-/** Balance = Σ ledger (client-side over the fetched window). */
-export function balanceOf(movements: Movement[], variantId: string): number {
+/** On-hand at one location, or across all when location is omitted. */
+export function balanceAt(balances: { variant_id: string; location_id: string; qty_on_hand: number }[],
+                          variantId: string, locationId?: string): number {
   let s = 0;
-  for (const m of movements) if (m.variant_id === variantId) s += m.qty_delta;
+  for (const b of balances)
+    if (b.variant_id === variantId && (!locationId || b.location_id === locationId))
+      s += b.qty_on_hand;
   return s;
 }
