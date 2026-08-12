@@ -13,7 +13,9 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "@newvora/pricing": "workspace:*",
-    "@newvora/tax": "workspace:*"
+    "@newvora/tax": "workspace:*",
+    "@supabase/supabase-js": "2.45.4",
+    "@supabase/ssr": "0.5.1"
   },
   "devDependencies": {
     "@types/node": "20.14.0",

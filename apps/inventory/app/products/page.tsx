@@ -32,7 +32,9 @@ export default function Products() {
           value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
-      {products.length === 0 ? (
+      {db.loading ? (
+        <div className="empty">Loading…</div>
+      ) : products.length === 0 ? (
         <div className="empty">
           <b>{q ? "No matches" : "No products yet"}</b>
           {q ? "Try a different name or SKU." : "Add your first product to get started."}
@@ -70,7 +72,7 @@ export default function Products() {
                     </td>
                     <td className="num mono">{price}</td>
                     <td className="num">
-                      <button className="btn danger sm" onClick={() => archiveProduct(p.id)}>Archive</button>
+                      <button className="btn danger sm" onClick={() => archiveProduct(p.id).catch(e => alert(e.message))}>Archive</button>
                     </td>
                   </tr>
                 );

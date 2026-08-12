@@ -1,33 +1,21 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useRepo, uid } from "@/lib/store";
-import type { Product, ProductOption, Variant } from "@/lib/types";
-
-/** "Nike T-Shirt", {"Size":"M","Colour":"Black"} -> NIK-M-BLK style SKUs */
-function autoSku(name: string, attrs: Record<string, string>, taken: Set<string>) {
-  const part = (s: string) => s.replace(/[^a-z0-9]/gi, "").slice(0, 3).toUpperCase() || "X";
-  let base = [part(name), ...Object.values(attrs).map(part)].join("-");
-  if (!Object.keys(attrs).length) base = part(name) + "-" + Math.random().toString(36).slice(2, 6).toUpperCase();
-  let sku = base, n = 2;
-  while (taken.has(sku)) sku = `${base}-${n++}`;
-  taken.add(sku);
-  return sku;
-}
+import { useRepo, type NewProductPayload } from "@/lib/store";
+import type { ProductOption } from "@/lib/types";
 
 function cartesian(options: ProductOption[]): Record<string, string>[] {
   return options.reduce<Record<string, string>[]>(
     (acc, o) => acc.flatMap(row => o.values.map(v => ({ ...row, [o.name]: v }))),
     [{}]);
 }
-
 const toPaise = (s: string) => {
   const n = parseFloat(s); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
 };
 
 export default function NewProduct() {
   const router = useRouter();
-  const { addProduct, postMovement } = useRepo();
+  const { createProduct } = useRepo();
 
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
@@ -37,55 +25,47 @@ export default function NewProduct() {
   const [options, setOptions] = useState<ProductOption[]>([]);
   const [optName, setOptName] = useState("");
   const [valDraft, setValDraft] = useState<Record<number, string>>({});
-  // simple-product fields
   const [cost, setCost] = useState(""); const [sell, setSell] = useState("");
   const [mrp, setMrp] = useState(""); const [opening, setOpening] = useState("");
-  // per-variant overrides in the matrix
   const [rows, setRows] = useState<Record<string, { cost: string; sell: string; opening: string }>>({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   const matrix = useMemo(
     () => (hasVariants && options.some(o => o.values.length) ? cartesian(options.filter(o => o.values.length)) : []),
     [hasVariants, options]);
-
   const keyOf = (a: Record<string, string>) => Object.values(a).join(" / ");
 
-  function save() {
-    if (!name.trim()) return alert("Product name is required");
-    const taken = new Set<string>();
-    let variants: Variant[];
-    if (hasVariants && matrix.length) {
-      variants = matrix.map((attrs, i) => {
-        const r = rows[keyOf(attrs)] ?? { cost, sell, opening: "" };
-        return {
-          id: uid(), sku: autoSku(name, attrs, taken), attributes: attrs,
-          is_default: i === 0,
-          base_cost_paise: toPaise(r.cost || cost),
-          selling_price_paise: toPaise(r.sell || sell),
-          mrp_paise: toPaise(mrp),
-        };
-      });
-    } else {
-      variants = [{
-        id: uid(), sku: autoSku(name, {}, taken), attributes: {}, is_default: true,
-        base_cost_paise: toPaise(cost), selling_price_paise: toPaise(sell), mrp_paise: toPaise(mrp),
-      }];
-    }
-    const p: Product = {
-      id: uid(), name: name.trim(), brand: brand.trim() || null,
-      category: category.trim() || null, hsn_sac: hsn.trim() || null,
-      has_variants: hasVariants && matrix.length > 0,
-      options: hasVariants ? options.filter(o => o.values.length) : [],
-      variants, status: "active", created_at: new Date().toISOString(),
-    };
-    addProduct(p);
-    // opening stock → ledger entries, never a stored quantity
-    for (const v of variants) {
-      const o = p.has_variants ? rows[keyOf(v.attributes)]?.opening : opening;
-      const qty = parseFloat(o ?? "");
-      if (Number.isFinite(qty) && qty > 0)
-        postMovement({ variant_id: v.id, qty_delta: qty, reason: "opening", note: "Opening stock" });
-    }
-    router.push("/products");
+  async function save() {
+    if (!name.trim()) return setErr("Product name is required");
+    setBusy(true); setErr(null);
+    const payload: NewProductPayload =
+      hasVariants && matrix.length
+        ? {
+            name: name.trim(), brand: brand.trim() || undefined,
+            category: category.trim() || undefined, hsn_sac: hsn.trim() || undefined,
+            has_variants: true, options: options.filter(o => o.values.length),
+            variants: matrix.map((attrs, i) => {
+              const r = rows[keyOf(attrs)] ?? { cost: "", sell: "", opening: "" };
+              return {
+                attributes: attrs, is_default: i === 0,
+                base_cost_paise: toPaise(r.cost || cost),
+                selling_price_paise: toPaise(r.sell || sell),
+                mrp_paise: toPaise(mrp),
+                opening_qty: parseFloat(r.opening) > 0 ? parseFloat(r.opening) : 0,
+              };
+            }),
+          }
+        : {
+            name: name.trim(), brand: brand.trim() || undefined,
+            category: category.trim() || undefined, hsn_sac: hsn.trim() || undefined,
+            has_variants: false,
+            base_cost_paise: toPaise(cost), selling_price_paise: toPaise(sell),
+            mrp_paise: toPaise(mrp),
+            opening_qty: parseFloat(opening) > 0 ? parseFloat(opening) : 0,
+          };
+    try { await createProduct(payload); router.push("/products"); }
+    catch (e: any) { setErr(e.message ?? "Could not save"); setBusy(false); }
   }
 
   return (
@@ -182,7 +162,8 @@ export default function NewProduct() {
             {matrix.length > 0 && (
               <>
                 <div className="sub" style={{ margin: "14px 0 8px" }}>
-                  {matrix.length} variants will be created. Leave a cell empty to inherit the price above.
+                  {matrix.length} variants will be created with auto-generated SKUs.
+                  Leave a cell empty to inherit the price above.
                 </div>
                 <div style={{ overflowX: "auto" }}>
                   <table className="table">
@@ -220,8 +201,9 @@ export default function NewProduct() {
         )}
       </div>
 
+      {err && <p className="sub" style={{ color: "var(--red)" }}>{err}</p>}
       <div className="row">
-        <button className="btn" onClick={save}>Save product</button>
+        <button className="btn" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save product"}</button>
         <button className="btn ghost" onClick={() => router.back()}>Cancel</button>
       </div>
     </>

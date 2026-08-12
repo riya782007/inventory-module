@@ -26,8 +26,7 @@ export default function Dashboard() {
         <div>
           <h1>Dashboard</h1>
           <p className="sub" style={{ marginBottom: 0 }}>
-            <span className="badge warn">Demo mode — data lives in this browser</span>{" "}
-            <span className="badge green">DB schema verified 45/45</span>
+            <span className="badge green">Live — connected to Supabase</span>
           </p>
         </div>
         <Link href="/products/new" className="btn">+ Add product</Link>

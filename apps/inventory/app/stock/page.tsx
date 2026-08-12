@@ -21,18 +21,19 @@ export default function Stock() {
       qty: balanceOf(db.movements, v.id),
     })));
 
-  function submit(variantId: string) {
+  async function submit(variantId: string) {
     const n = parseFloat(qty);
     if (!Number.isFinite(n) || n <= 0) return alert("Enter a quantity");
-    const target = rows.find(r => r.v.id === variantId);
     const delta = dir === "in" ? n : -n;
-    if (dir === "out" && target && target.qty + delta < 0)
-      return alert(`Only ${target.qty} in stock — the ledger refuses oversell.`);
-    postMovement({
-      variant_id: variantId, qty_delta: delta,
-      reason: reason as any, note: note.trim() || null,
-    });
-    setOpen(null); setQty(""); setNote("");
+    try {
+      await postMovement({
+        variant_id: variantId, qty_delta: delta,
+        reason, note: note.trim() || null,
+      });
+      setOpen(null); setQty(""); setNote("");
+    } catch (e: any) {
+      alert(e.message); // the DATABASE refuses oversell; surface its message
+    }
   }
 
   return (
@@ -43,7 +44,9 @@ export default function Stock() {
         Adjust stock and watch the history: nothing is ever edited, only appended.
       </p>
 
-      {rows.length === 0 ? (
+      {db.loading ? (
+        <div className="empty">Loading…</div>
+      ) : rows.length === 0 ? (
         <div className="empty"><b>No stock to show</b>Add a product first.</div>
       ) : (
         <div className="panel" style={{ padding: 0, overflowX: "auto" }}>
