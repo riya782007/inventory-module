@@ -1,0 +1,3 @@
+{ "name": "@newvora/pricing", "version": "0.1.0", "type": "module",
+  "main": "src/index.ts", "types": "src/index.ts",
+  "scripts": { "test": "node --experimental-strip-types src/index.test.ts" } }
