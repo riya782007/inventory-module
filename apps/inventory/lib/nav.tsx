@@ -6,6 +6,7 @@ const ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/products", label: "Products" },
   { href: "/stock", label: "Stock" },
+  { href: "/purchases", label: "Purchases" },
   { href: "/stock/transfers", label: "Transfers" },
   { href: "/stock/count", label: "Stock count" },
   { href: "/reports", label: "Reports" },
