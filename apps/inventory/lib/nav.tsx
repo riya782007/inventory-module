@@ -11,11 +11,12 @@ const ITEMS = [
 
 export function Nav() {
   const path = usePathname();
+  const active = (h: string) => (h === "/" ? path === "/" : path.startsWith(h));
   return (
     <nav>
       {ITEMS.map((i) => (
         <Link key={i.href} href={i.href}
-          className={"nav-item" + (path === i.href ? " active" : "")}>
+          className={"nav-item" + (active(i.href) ? " active" : "")}>
           {i.label}
         </Link>
       ))}
