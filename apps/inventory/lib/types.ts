@@ -16,8 +16,11 @@ export type Variant = {
   mrp_paise: number | null;
 };
 
+export type ProductImage = { id: string; storage_path: string; variant_id: string | null; position: number };
+
 export type Product = {
   id: string;
+  images: ProductImage[];
   name: string;
   category: string | null;
   brand: string | null;

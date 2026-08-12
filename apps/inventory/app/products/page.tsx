@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { formatPaise } from "@newvora/pricing";
-import { useDB, useRepo, balanceAt } from "@/lib/store";
+import { useDB, useRepo, balanceAt, imageUrl } from "@/lib/store";
 
 export default function Products() {
   const db = useDB();
@@ -63,9 +63,26 @@ export default function Products() {
                 return (
                   <tr key={p.id}>
                     <td>
-                      <Link href={`/products/${p.id}`} style={{ fontWeight: 600, color: "var(--accent-soft)" }}>{p.name}</Link>
-                      <div className="dim" style={{ fontSize: 12 }}>
-                        {[p.brand, p.category].filter(Boolean).join(" · ") || "—"}
+                      <div className="row" style={{ flexWrap: "nowrap", gap: 10, alignItems: "center" }}>
+                        {p.images[0] ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img src={imageUrl(p.images[0].storage_path)} alt=""
+                            style={{ width: 38, height: 38, objectFit: "cover",
+                                     borderRadius: 8, border: "1px solid var(--line)" }} />
+                        ) : (
+                          <div style={{ width: 38, height: 38, borderRadius: 8,
+                            background: "var(--panel2)", border: "1px solid var(--line)",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            color: "var(--dim)", fontSize: 15, flexShrink: 0 }}>
+                            {p.name.slice(0, 1).toUpperCase()}
+                          </div>
+                        )}
+                        <div>
+                          <Link href={`/products/${p.id}`} style={{ fontWeight: 600, color: "var(--accent-soft)" }}>{p.name}</Link>
+                          <div className="dim" style={{ fontSize: 12 }}>
+                            {[p.brand, p.category].filter(Boolean).join(" · ") || "—"}
+                          </div>
+                        </div>
                       </div>
                     </td>
                     <td>{p.has_variants

@@ -6,7 +6,8 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import type { Product, Movement, ProductOption, Variant, Location, Balance } from "./types";
+import type { Product, Movement, ProductOption, Variant, Location, Balance, ProductImage } from "./types";
+import { compressImage } from "./image";
 
 export type NewProductPayload = {
   name: string; sku?: string; brand?: string; category?: string; hsn_sac?: string;
@@ -38,6 +39,7 @@ async function fetchAll(): Promise<Omit<DB, "loading">> {
       .select(`id, name, hsn_sac, has_variants, status, created_at,
                brands ( name ), categories ( name ),
                product_options ( name, position, product_option_values ( value, position ) ),
+               product_images ( id, storage_path, variant_id, position ),
                product_variants ( id, sku, attributes, is_default, status,
                  base_cost_paise, selling_price_paise, mrp_paise,
                  product_barcodes ( barcode ) )`)
@@ -56,6 +58,8 @@ async function fetchAll(): Promise<Omit<DB, "loading">> {
 
   const products: Product[] = (prod.data ?? []).map((p: any) => ({
     id: p.id, name: p.name,
+    images: ((p.product_images ?? []) as ProductImage[])
+      .sort((a, b) => a.position - b.position),
     brand: p.brands?.name ?? null, category: p.categories?.name ?? null,
     hsn_sac: p.hsn_sac, has_variants: p.has_variants, status: p.status,
     created_at: p.created_at,
@@ -183,6 +187,31 @@ export function useRepo() {
     bump();
   }, []);
 
+  const addImage = useCallback(async (productId: string, file: File, variantId?: string) => {
+    const org = await orgId();
+    const supa = supabaseBrowser();
+    const blob = await compressImage(file);
+    const path = `${org}/${productId}/${crypto.randomUUID()}.jpg`;
+    const up = await supa.storage.from("product-media")
+      .upload(path, blob, { contentType: "image/jpeg", upsert: false });
+    if (up.error) throw new Error(up.error.message);
+    const { error } = await supa.schema("core").from("product_images").insert({
+      org_id: org, product_id: productId, variant_id: variantId ?? null,
+      storage_path: path,
+    });
+    if (error) throw new Error(error.message);
+    bump();
+  }, []);
+
+  const deleteImage = useCallback(async (imageId: string, path: string) => {
+    const supa = supabaseBrowser();
+    const { error } = await supa.schema("core").from("product_images")
+      .delete().eq("id", imageId);
+    if (error) throw new Error(error.message);
+    await supa.storage.from("product-media").remove([path]);
+    bump();
+  }, []);
+
   const addBarcode = useCallback(async (variantId: string, productId: string, barcode: string) => {
     const { error } = await supabaseBrowser().schema("core")
       .from("product_barcodes").insert({
@@ -199,7 +228,8 @@ export function useRepo() {
   }, []);
 
   return { createProduct, updateProduct, updateVariant, archiveProduct,
-           postMovement, rpc, addLocation, addBarcode, signOut, refresh: bump };
+           postMovement, rpc, addLocation, addBarcode, addImage, deleteImage,
+           signOut, refresh: bump };
 }
 
 /** On-hand at one location, or across all when location is omitted. */
@@ -210,4 +240,9 @@ export function balanceAt(balances: { variant_id: string; location_id: string; q
     if (b.variant_id === variantId && (!locationId || b.location_id === locationId))
       s += b.qty_on_hand;
   return s;
+}
+
+/** Public CDN URL for a stored product image. */
+export function imageUrl(path: string): string {
+  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/product-media/${path}`;
 }

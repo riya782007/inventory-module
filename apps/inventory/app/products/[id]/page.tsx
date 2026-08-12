@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { formatPaise } from "@newvora/pricing";
-import { useDB, useRepo, balanceAt } from "@/lib/store";
+import { useDB, useRepo, balanceAt, imageUrl } from "@/lib/store";
 
 const toPaise = (s: string) => {
   const n = parseFloat(s); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
@@ -14,13 +14,14 @@ export default function ProductDetail() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const db = useDB();
-  const { updateProduct, updateVariant, archiveProduct, rpc, addBarcode } = useRepo();
+  const { updateProduct, updateVariant, archiveProduct, rpc, addBarcode, addImage, deleteImage } = useRepo();
   const product = useMemo(() => db.products.find(p => p.id === id), [db.products, id]);
   const [name, setName] = useState<string | null>(null);
   const [hsn, setHsn] = useState<string | null>(null);
   const [edit, setEdit] = useState<string | null>(null);   // variant id being edited
   const [draft, setDraft] = useState({ sku: "", cost: "", sell: "", mrp: "", min: "" });
   const [newCode, setNewCode] = useState("");
+  const [uploading, setUploading] = useState(false);
   const defaultLoc = db.locations.find(l => l.is_default)?.id ?? "";
 
   if (db.loading) return <div className="empty">Loading…</div>;
@@ -89,6 +90,44 @@ export default function ProductDetail() {
               }
             }}>Archive</button>}
         </div>
+      </div>
+
+      <div className="panel">
+        <h2>Photos</h2>
+        <div className="row" style={{ alignItems: "flex-start" }}>
+          {product.images.map(img => (
+            <div key={img.id} style={{ position: "relative" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={imageUrl(img.storage_path)} alt=""
+                style={{ width: 92, height: 92, objectFit: "cover",
+                         borderRadius: 10, border: "1px solid var(--line2)" }} />
+              <button className="btn danger sm"
+                style={{ position: "absolute", top: 4, right: 4, padding: "0 7px" }}
+                onClick={async () => {
+                  try { await deleteImage(img.id, img.storage_path); }
+                  catch (e: any) { alert(e.message); }
+                }}>×</button>
+            </div>
+          ))}
+          <label className="empty" style={{ width: 92, height: 92, padding: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", fontSize: 26, color: "var(--dim)" }}>
+            {uploading ? "…" : "+"}
+            <input type="file" accept="image/*" multiple hidden
+              onChange={async e => {
+                const files = Array.from(e.target.files ?? []);
+                if (!files.length) return;
+                setUploading(true);
+                try { for (const f of files) await addImage(product.id, f); }
+                catch (err: any) { alert(err.message); }
+                finally { setUploading(false); e.target.value = ""; }
+              }} />
+          </label>
+        </div>
+        <p className="sub" style={{ margin: "8px 0 0", fontSize: 12 }}>
+          Photos compress in your browser before upload (max 1200px). The first
+          photo becomes the main one in lists and the future catalogue.
+        </p>
       </div>
 
       <div className="panel">
