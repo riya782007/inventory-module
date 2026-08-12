@@ -25,6 +25,7 @@ export default function Products() {
           </p>
         </div>
         <div className="row">
+          <Link href="/products/import" className="btn ghost">Import file</Link>
           <Link href="/products/bulk" className="btn ghost">Bulk add</Link>
           <Link href="/products/new" className="btn">+ Add product</Link>
         </div>

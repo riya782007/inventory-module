@@ -15,12 +15,15 @@
     "@newvora/pricing": "workspace:*",
     "@newvora/tax": "workspace:*",
     "@supabase/supabase-js": "2.45.4",
-    "@supabase/ssr": "0.5.1"
+    "@supabase/ssr": "0.5.1",
+    "papaparse": "5.4.1",
+    "xlsx": "0.18.5"
   },
   "devDependencies": {
     "@types/node": "20.14.0",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
-    "typescript": "5.5.4"
+    "typescript": "5.5.4",
+    "@types/papaparse": "5.3.14"
   }
 }
