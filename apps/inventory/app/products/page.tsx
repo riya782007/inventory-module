@@ -24,7 +24,10 @@ export default function Products() {
             One product master — Inventory, Catalogue and future POS all read it.
           </p>
         </div>
-        <Link href="/products/new" className="btn">+ Add product</Link>
+        <div className="row">
+          <Link href="/products/bulk" className="btn ghost">Bulk add</Link>
+          <Link href="/products/new" className="btn">+ Add product</Link>
+        </div>
       </div>
 
       <div className="row" style={{ marginBottom: 16 }}>

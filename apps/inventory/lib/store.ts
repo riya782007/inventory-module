@@ -103,7 +103,7 @@ async function orgAndLocation() {
 export function useRepo() {
   const createProduct = useCallback(async (payload: NewProductPayload) => {
     const { error } = await supabaseBrowser().schema("core")
-      .rpc("create_product", { p: payload });
+      .rpc("create_product_v2", { p: payload });
     if (error) throw new Error(error.message);
     bump();
   }, []);
