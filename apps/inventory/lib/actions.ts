@@ -11,7 +11,7 @@ export async function createOrganization(name: string, slug: string) {
   const { data: { user } } = await supa.auth.getUser();
   if (!user) return { error: "Not signed in" };
 
-  const { data, error } = await supa.rpc("create_organization", {
+  const { data, error } = await supa.schema("platform").rpc("create_organization", {
     p_name: name, p_slug: slug,
   });
   if (error) return { error: error.message };
