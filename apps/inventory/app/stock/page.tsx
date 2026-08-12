@@ -14,6 +14,8 @@ export default function Stock() {
   const [dir, setDir] = useState<"in" | "out">("in");
   const [reason, setReason] = useState<string>("purchase");
   const [note, setNote] = useState("");
+  const [scan, setScan] = useState("");
+  const [flash, setFlash] = useState<string | null>(null);
 
   const multiLoc = db.locations.length > 1;
   const activeLoc = locId || db.locations.find(l => l.is_default)?.id || "";
@@ -27,6 +29,20 @@ export default function Stock() {
       qty: balanceAt(db.balances, v.id, locId || undefined),
       min: db.reorder[`${v.id}:${activeLoc}`],
     })));
+
+  function onScan() {
+    const code = scan.trim().toUpperCase();
+    if (!code) return;
+    // USB scanners type the code + Enter. Match a registered barcode first,
+    // then the SKU - same resolution order billing will use.
+    const hit = rows.find(r => r.v.barcodes.some(b => b.toUpperCase() === code))
+             ?? rows.find(r => r.v.sku.toUpperCase() === code);
+    setScan("");
+    if (!hit) { setFlash(`No item with code ${code}`); setTimeout(() => setFlash(null), 2500); return; }
+    setFlash(null);
+    setOpen(hit.v.id); setDir("in"); setReason("purchase"); setHist(null);
+    document.getElementById(`row-${hit.v.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
   async function submit(variantId: string) {
     const n = parseFloat(qty);
@@ -56,6 +72,14 @@ export default function Stock() {
         </div>
       </div>
 
+      <div className="row" style={{ marginBottom: 14 }}>
+        <input className="input searchbar" placeholder="Scan barcode or type SKU + Enter…"
+          value={scan} autoFocus
+          onChange={e => setScan(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") onScan(); }} />
+        {flash && <span className="badge red">{flash}</span>}
+      </div>
+
       {multiLoc && (
         <div className="row" style={{ marginBottom: 14 }}>
           <select className="input" style={{ maxWidth: 240 }} value={locId}
@@ -82,7 +106,7 @@ export default function Stock() {
             <tbody>
               {rows.map(({ p, v, label, qty: q, min }) => (
                 <Frag key={v.id}>
-                  <tr>
+                  <tr id={`row-${v.id}`}>
                     <td style={{ fontWeight: 600 }}>{p.name}</td>
                     <td>{label || <span className="dim">—</span>}</td>
                     <td className="mono dim">{v.sku}</td>

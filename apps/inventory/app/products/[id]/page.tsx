@@ -14,12 +14,13 @@ export default function ProductDetail() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const db = useDB();
-  const { updateProduct, updateVariant, archiveProduct, rpc } = useRepo();
+  const { updateProduct, updateVariant, archiveProduct, rpc, addBarcode } = useRepo();
   const product = useMemo(() => db.products.find(p => p.id === id), [db.products, id]);
   const [name, setName] = useState<string | null>(null);
   const [hsn, setHsn] = useState<string | null>(null);
   const [edit, setEdit] = useState<string | null>(null);   // variant id being edited
   const [draft, setDraft] = useState({ sku: "", cost: "", sell: "", mrp: "", min: "" });
+  const [newCode, setNewCode] = useState("");
   const defaultLoc = db.locations.find(l => l.is_default)?.id ?? "";
 
   if (db.loading) return <div className="empty">Loading…</div>;
@@ -156,6 +157,19 @@ export default function ProductDetail() {
                           <input className="input" value={draft.min} inputMode="numeric"
                             onChange={e => setDraft(d => ({ ...d, min: e.target.value }))} /></div>
                         <button className="btn sm" style={{ marginTop: 16 }} onClick={() => saveVariant(v.id)}>Save</button>
+                      </div>
+                      <div className="row" style={{ paddingBottom: 6 }}>
+                        <span className="sub" style={{ margin: 0 }}>Barcodes:</span>
+                        {v.barcodes.length === 0 && <span className="dim" style={{ fontSize: 13 }}>none — SKU is used on labels</span>}
+                        {v.barcodes.map(b => <span className="chip mono" key={b}>{b}</span>)}
+                        <input className="input" style={{ maxWidth: 180 }} placeholder="Add EAN/code + Enter"
+                          value={newCode} onChange={e => setNewCode(e.target.value)}
+                          onKeyDown={async e => {
+                            if (e.key === "Enter" && newCode.trim()) {
+                              try { await addBarcode(v.id, product.id, newCode); setNewCode(""); }
+                              catch (err: any) { alert(err.message); }
+                            }
+                          }} />
                       </div>
                     </td></tr>
                   )}

@@ -39,7 +39,8 @@ async function fetchAll(): Promise<Omit<DB, "loading">> {
                brands ( name ), categories ( name ),
                product_options ( name, position, product_option_values ( value, position ) ),
                product_variants ( id, sku, attributes, is_default, status,
-                 base_cost_paise, selling_price_paise, mrp_paise )`)
+                 base_cost_paise, selling_price_paise, mrp_paise,
+                 product_barcodes ( barcode ) )`)
       .order("created_at", { ascending: false }),
     supa.schema("inventory").from("stock_movements")
       .select("id, variant_id, location_id, qty_delta, reason, note, occurred_at")
@@ -68,6 +69,7 @@ async function fetchAll(): Promise<Omit<DB, "loading">> {
       })),
     variants: (p.product_variants ?? []).map((v: any): Variant => ({
       id: v.id, sku: v.sku, attributes: v.attributes ?? {},
+      barcodes: (v.product_barcodes ?? []).map((b: any) => String(b.barcode)),
       is_default: v.is_default,
       base_cost_paise: v.base_cost_paise,
       selling_price_paise: v.selling_price_paise, mrp_paise: v.mrp_paise,
@@ -181,13 +183,23 @@ export function useRepo() {
     bump();
   }, []);
 
+  const addBarcode = useCallback(async (variantId: string, productId: string, barcode: string) => {
+    const { error } = await supabaseBrowser().schema("core")
+      .from("product_barcodes").insert({
+        org_id: await orgId(), variant_id: variantId,
+        barcode: barcode.trim(), type: "EAN13".length && /^\d{13}$/.test(barcode.trim()) ? "EAN13" : "CODE128",
+      });
+    if (error) throw new Error(error.message);
+    bump();
+  }, []);
+
   const signOut = useCallback(async () => {
     await supabaseBrowser().auth.signOut();
     window.location.href = "/login";
   }, []);
 
   return { createProduct, updateProduct, updateVariant, archiveProduct,
-           postMovement, rpc, addLocation, signOut, refresh: bump };
+           postMovement, rpc, addLocation, addBarcode, signOut, refresh: bump };
 }
 
 /** On-hand at one location, or across all when location is omitted. */

@@ -8,6 +8,7 @@ export type ProductOption = { name: string; values: string[] };
 export type Variant = {
   id: string;
   sku: string;
+  barcodes: string[];
   attributes: Record<string, string>;   // {"Size":"M","Colour":"Black"}
   is_default: boolean;
   base_cost_paise: number | null;
