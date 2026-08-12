@@ -18,11 +18,21 @@ export default function Onboarding() {
   async function go() {
     if (name.trim().length < 2) return setErr("Enter your business name");
     setBusy(true); setErr(null);
-    const res = await createOrganization(name.trim(), slug || slugify(name));
-    if ("error" in res && res.error) { setBusy(false); return setErr(res.error); }
-    // pick up the new JWT that carries org_id
-    await supabaseBrowser().auth.refreshSession();
-    router.push("/"); router.refresh();
+    try {
+      // never spin forever: whatever happens server-side, give up at 20s
+      const res = await Promise.race([
+        createOrganization(name.trim(), slug || slugify(name)),
+        new Promise<{ error: string }>(resolve => setTimeout(() =>
+          resolve({ error: "Timed out. Check that SUPABASE_SERVICE_ROLE_KEY is set in Vercel, then try again — an existing business is picked up automatically." }), 20000)),
+      ]);
+      if ("error" in res && res.error) { setErr(res.error); return; }
+      await supabaseBrowser().auth.refreshSession();
+      router.push("/"); router.refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Something went wrong — try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
