@@ -25,7 +25,13 @@ export async function middleware(req: NextRequest) {
   if (user && path.startsWith("/login"))
     return NextResponse.redirect(new URL("/", req.url));
   // Signed in but no business yet -> onboarding, and nowhere else.
-  const orgId = (user?.app_metadata as { org_id?: string } | undefined)?.org_id;
+  // The JWT stamp is only the fast path: if it's missing, ask the DB for a
+  // membership before bouncing (recovers sessions whose stamping failed).
+  let orgId = (user?.app_metadata as { org_id?: string } | undefined)?.org_id;
+  if (user && !orgId) {
+    const { data } = await supa.schema("platform").rpc("my_org");
+    orgId = (data as { org_id?: string } | null)?.org_id;
+  }
   if (user && !orgId && !path.startsWith("/onboarding") && !isPublic)
     return NextResponse.redirect(new URL("/onboarding", req.url));
   if (user && orgId && path.startsWith("/onboarding"))

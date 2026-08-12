@@ -1,6 +1,9 @@
 "use server";
 import { supabaseServer, supabaseAdmin } from "@/lib/supabase/server";
 
+// Note: the admin stamp is an optimisation; membership fallback (migration
+// 0013) keeps everything working even when SUPABASE_SERVICE_ROLE_KEY is absent.
+
 /**
  * Create the business, then stamp org_id into the user's app_metadata so
  * every future JWT carries it - that claim is what RLS trusts.
@@ -14,9 +17,6 @@ import { supabaseServer, supabaseAdmin } from "@/lib/supabase/server";
  */
 export async function createOrganization(name: string, slug: string) {
   try {
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return { error: "Server is missing SUPABASE_SERVICE_ROLE_KEY. Add it in Vercel → Settings → Environment Variables and redeploy." };
-    }
     const supa = supabaseServer();
     const { data: { user } } = await supa.auth.getUser();
     if (!user) return { error: "Not signed in" };
@@ -38,10 +38,13 @@ export async function createOrganization(name: string, slug: string) {
       orgId = (data as { org_id: string }).org_id;
     }
 
-    const { error: adminErr } = await supabaseAdmin().auth.admin.updateUserById(user.id, {
-      app_metadata: { org_id: orgId },
-    });
-    if (adminErr) return { error: adminErr.message };
+    try {
+      await supabaseAdmin().auth.admin.updateUserById(user.id, {
+        app_metadata: { org_id: orgId },
+      });
+    } catch {
+      // Not fatal: current_org_id() falls back to the membership row (0013).
+    }
     return { org_id: orgId };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Unexpected server error" };
